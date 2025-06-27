@@ -253,9 +253,15 @@ def get_day_ahead_prices(p):
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="%d.%m.%Y %H:%M")
     df.set_index("timestamp", inplace=True)
     # Ensure the index is a DatetimeIndex with a fixed frequency before resampling
-    df = df.resample("{}h".format(p.el_t_s)).mean().interpolate()
+    print(p.el_t_s)
+    if p.el_t_s == 0.25:
+        resample_time = "15min"
+    else:
+        resample_time = "{}h".format(p.el_t_s)
+    print(resample_time)
+    df = df.resample(resample_time).mean()  # .interpolate()
     df["price"] = df["price"].ffill() / 1000  # Fill any remaining NaNs if needed
-    prices = df.price.values[: p.el_t_s * 24 * 365]  # Return only the first year
+    prices = df.price.values[: int(p.el_N_s)]  # Return only the first year
 
     assert (
         len(prices) == p.el_N_s

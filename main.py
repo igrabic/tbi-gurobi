@@ -15,7 +15,7 @@ def solve_energy_hub_optimization():
     based on the document "problem formulation TBI v0.21.docx" and Scenario 1 parameters.
     """
 
-    p = generate_data(tbi="TBI2", scenario="Scenario 6")
+    p = generate_data(tbi="TBI2", scenario="Scenario 2")
     print("Data generation complete.")
 
     # Create a new model
@@ -331,17 +331,45 @@ def solve_energy_hub_optimization():
         print(f"Total Grid Capacity: {Pcap_exist_EGC + Pcap_new_EGC.X:.2f} kW")
         solution_filename = "my_model_solution.sol"
         m.write(solution_filename)
-    else:
-        print("No optimal solution found.")
-        if m.status == GRB.INFEASIBLE:
-            print(
-                "Model is infeasible. Computing IIS to find conflicting constraints..."
-            )
-            m.computeIIS()
-            m.write("model.ilp")
-            print(
-                "IIS written to model.ilp. You can open this file to see the irreducible inconsistent subsystem."
-            )
+
+        print("Optimization was successful. Checking active constraints...")
+
+        # Iterate over all linear constraints in the model
+        for c in m.getConstrs():
+            # Get the slack value for the current constraint
+            slack = c.Slack
+
+            # Check if the slack is close to zero.
+            # Use a small tolerance (e.g., 1e-6 or m.Params.FeasibilityTol)
+            # due to floating-point arithmetic.
+            # Equality constraints (Sense == '=') will always have zero slack.
+            # We generally check inequalities for 'active' status.
+            if c.Sense == "=":
+                # Equality constraints are by definition active if feasible
+                # You might print them separately or skip them if you only care about inequalities
+                # print(f"Equality Constraint: {c.ConstrName} (Always active if feasible)")
+                pass  # Or print if you want to see all equality constraints
+            elif abs(slack) < m.Params.FeasibilityTol:  # Use solver's tolerance
+                print(f"Active Constraint (<= or >=): {c.ConstrName}")
+                print(f"  LHS: {m.getRow(c).getValue()}")  # Get value of LHS expression
+                print(f"  RHS: {c.RHS}")
+                print(f"  Slack: {c.Slack}")
+            # else:
+            # You could print inactive constraints if you want to see them too
+            # print(f"Inactive Constraint: {c.ConstrName}, Slack: {c.Slack}")
+
+        # You can also iterate over quadratic constraints if you have them
+        else:
+            print("No optimal solution found.")
+            if m.status == GRB.INFEASIBLE:
+                print(
+                    "Model is infeasible. Computing IIS to find conflicting constraints..."
+                )
+                m.computeIIS()
+                m.write("model.ilp")
+                print(
+                    "IIS written to model.ilp. You can open this file to see the irreducible inconsistent subsystem."
+                )
 
     results = Results()
     results.from_gurobi(m, p)
