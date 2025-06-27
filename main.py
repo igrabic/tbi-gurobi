@@ -15,7 +15,7 @@ def solve_energy_hub_optimization():
     based on the document "problem formulation TBI v0.21.docx" and Scenario 1 parameters.
     """
 
-    p = generate_data(tbi="TBI2", scenario="Scenario 2")
+    p = generate_data(tbi="TBI2", scenario="Scenario 6")
     print("Data generation complete.")
 
     # Create a new model
@@ -186,7 +186,7 @@ def solve_energy_hub_optimization():
 
     # PV-2.1: PV power converter constraint
     print("Setting up PV-2.1: PV Power Converter constraint...")
-    m.addConstrs((P_PV <= P_total_pc_PV for k in range(Nh_BESS)), name="PV_2_1_PC")
+    m.addConstr(P_PV <= P_total_pc_PV, name="PV_2_1_PC")
 
     # BESS-1.0: Sequence repeatability
     print("Setting up BESS-1.0: Sequence repeatability constraint...")
@@ -221,7 +221,7 @@ def solve_energy_hub_optimization():
     # )
 
     m.addConstr(
-        (psi_ch @ P_chg_BESS - psi_dch @ P_dch_BESS >= E_total_batt * (1 - s_DoD_batt)),
+        psi_ch @ P_chg_BESS - psi_dch @ P_dch_BESS >= E_total_batt * (1 - s_DoD_batt),
         "BESS_SoC_min",
     )
     m.addConstr(
@@ -263,11 +263,11 @@ def solve_energy_hub_optimization():
 
     # Note: P_grid_EGC is the net power exchanged with the grid
     P_grid_EGC = P_chg_BESS - P_dch_BESS - P_PV + Pfix_EGC - Pexist_PV
-    m.addConstrs(
+    m.addConstr(
         C_en_EGC >= cen_buy_EGC * P_grid_EGC,
         name="EGC_1_1_buy_cost",
     )
-    m.addConstrs(
+    m.addConstr(
         C_en_EGC >= cen_sell_EGC * P_grid_EGC,
         name="EGC_1_2_sell_cost",
     )
