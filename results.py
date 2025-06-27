@@ -1099,10 +1099,10 @@ if __name__ == "__main__":
     # result.print_financials()
     # result.plot_peak_comparison()
     # result.plot_cost_comparison()
-    for day in range(10, 20):
-        result.plot_day_with_negative_prices(daynum=20)
+    # for day in range(10, 20):
+    #     result.plot_day_with_negative_prices(daynum=day)
     # result.plot_pv_production(day=16)
-    # result.plot_battery_operation("day", 16)
+    result.plot_battery_operation("day", 16)
     # result.plot_one_day(var_names=["BESS_P_dchg", "BESS_P_chg"], day=16)
     # result.plot_all()
     result.run_tests()

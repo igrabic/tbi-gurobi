@@ -27,14 +27,11 @@ def solve_energy_hub_optimization():
     N_days = p.N_days  # Number of days in the planning horizon
     N_months = p.N_months
     ts_BESS = p.BESS_t_s  # Sampling time in hours
+    print("Sampling time: ", ts_BESS)
     Nh_BESS = p.el_N_s
-    NDL = p.NDL if hasattr(p, "NDL") else 40  # Design Life in years
-    N_payoff_max = (
-        p.N_payoff_max if hasattr(p, "N_payoff_max") else 20
-    )  # Maximum payoff period in years
-    C_inv_max = (
-        p.C_inv_max if hasattr(p, "C_inv_max") else 1000000
-    )  # Maximum investment budget in Euros
+    NDL = p.N_DL  # Design Life in years
+    N_payoff_max = p.N_payoff_max  # Maximum payoff period in years
+    C_inv_max = p.C_inv_max  # Maximum investment budget in Euros
 
     # PV System
     Narr_PV = p.PV_N_arr
@@ -42,12 +39,21 @@ def solve_energy_hub_optimization():
     cmnt_PV = p.PV_c_mnt
     crpl_PV = p.PV_c_rpl
     NLT_PV = p.PV_N_LT
-    cpc_inv_PV = 300
-    cpc_mnt_PV = 30
-    cpc_rpl_PV = 300
+    cpc_inv_PV = 0
+    cpc_mnt_PV = 0
+    cpc_rpl_PV = 0
     Npc_LT_PV = 10
     P_pc_exist_PV = 0
     PV_alpha_ub = np.minimum(p.PV_P_max, p.PV_alpha_max)
+    cpc_deg_PV = cpc_rpl_PV / Npc_LT_PV
+
+    print("PV System Parameters:")
+    print(f"  Narr_PV (Number of PV arrays): {Narr_PV}")
+    print(f"  cinv_PV (Investment cost per kW): {cinv_PV}")
+    print(f"  cmnt_PV (Maintenance cost per kW): {cmnt_PV}")
+    print(f"  crpl_PV (Replacement cost per kW): {crpl_PV}")
+    print(f"  NLT_PV (Lifetime in years): {NLT_PV}")
+    print(f"  PV_alpha_ub (PV upper bounds): {PV_alpha_ub}")
 
     # PV production profile
     PV_ref = p.PV_P_ref
@@ -71,13 +77,13 @@ def solve_energy_hub_optimization():
     cdeg_PC = crpl_PC / NLT_PC
     cmnt_PC = p.PC_c_mnt
     P_exist_PC = p.PC_P_exist
-    eta_chg_BESS = p.BESS_eta_chg if hasattr(p, "BESS_eta_chg") else 0.93
-    eta_dch_BESS = p.BESS_eta_dchg if hasattr(p, "BESS_eta_dchg") else 0.93
-    beta_chg_batt = p.batt_beta_chg if hasattr(p, "batt_beta_chg") else 1.0
-    beta_dch_batt = p.batt_beta_dchg if hasattr(p, "batt_beta_dchg") else 1.0
+    eta_chg_BESS = p.PC_eta_chg
+    eta_dch_BESS = p.PC_eta_dch
+    beta_chg_batt = p.batt_beta_chg
+    beta_dch_batt = p.batt_beta_dch
 
     # Electrical Grid Connection (EGC)
-    Pcap_exist_EGC = p.EGC_P_exist if hasattr(p, "EGC_P_exist") else 1046
+    Pcap_exist_EGC = p.EGC_P_cap_exist
     cinv_EGC = p.EGC_c_inv
     Pfix_EGC = p.EGC_P_fix
 
@@ -129,6 +135,13 @@ def solve_energy_hub_optimization():
     f_new_PC = (cinv_PC / NDL) + cmnt_PC + (crpl_PC / NLT_PC)
     f_cap_new_EGC = cinv_EGC / NDL
 
+    print("Cost coefficients for variables:")
+    print(f"  f_alpha_PV: {f_alpha_PV}")
+    print(f"  f_pc_new_PV: {f_pc_new_PV}")
+    print(f"  f_new_batt: {f_new_batt}")
+    print(f"  f_new_PC: {f_new_PC}")
+    print(f"  f_cap_new_EGC: {f_cap_new_EGC}")
+
     # Annualized Investment, Maintenance, and Degradation costs for new components
     J_inv_mnt_deg = (
         f_alpha_PV * alpha_PV.sum()
@@ -138,7 +151,7 @@ def solve_energy_hub_optimization():
         + f_cap_new_EGC * Pcap_new_EGC
     )
 
-    # BESS degradation from operation
+    # Degradation costs for all components
     J_deg_BESS = (
         (365 / N_days) * cdeg_batt * ts_BESS * (P_chg_BESS.sum() + P_dch_BESS.sum())
     )
@@ -166,14 +179,14 @@ def solve_energy_hub_optimization():
     assert P_PV.shape == (Nh_BESS,), "P_PV should have shape (Nh_BESS,)"
     assert Pexist_PV.shape == (Nh_BESS,), "Pexist_PV should have shape (Nh_BESS,)"
 
-    m.addConstrs(
-        (P_PV[k] <= Pexist_PV[k] + P_new_PV_total[k] for k in range(Nh_BESS)),
+    m.addConstr(
+        P_PV <= Pexist_PV + P_new_PV_total,
         name="PV_1_1_Size",
     )
 
     # PV-2.1: PV power converter constraint
     print("Setting up PV-2.1: PV Power Converter constraint...")
-    m.addConstrs((P_PV[k] <= P_total_pc_PV for k in range(Nh_BESS)), name="PV_2_1_PC")
+    m.addConstrs((P_PV <= P_total_pc_PV for k in range(Nh_BESS)), name="PV_2_1_PC")
 
     # BESS-1.0: Sequence repeatability
     print("Setting up BESS-1.0: Sequence repeatability constraint...")
@@ -186,18 +199,19 @@ def solve_energy_hub_optimization():
 
     # BESS-2: State variables limits (dynamics and bounds)
     print("Setting up BESS-2: State variables limits...")
-    E_bess = (
-        lambda k: gp.quicksum(
-            (P_chg_BESS[i] * eta_chg_BESS - P_dch_BESS[i] / eta_dch_BESS) * ts_BESS
-            for i in range(k)
-        )
-        + E_BESS_0
-    )
+    # E_bess = (
+    #     lambda k: gp.quicksum(
+    #         (P_chg_BESS[i] * eta_chg_BESS - P_dch_BESS[i] / eta_dch_BESS) * ts_BESS
+    #         for i in range(k)
+    #     )
+    #     + E_BESS_0
+    # )
 
     L = np.tril(np.ones((Nh_BESS, Nh_BESS)))
     psi_ch = eta_chg_BESS * ts_BESS * L
     psi_dch = (1 / eta_dch_BESS) * ts_BESS * L
 
+    print(psi_ch)
     # m.addConstrs(
     #     ((1 - s_DoD_batt) * E_total_batt <= E_bess(k) for k in range(Nh_BESS)),
     #     name="BESS_2_1_SoC_min",
@@ -219,8 +233,8 @@ def solve_energy_hub_optimization():
 
     # BESS-3.0: Size of power converter
     print("Setting up BESS-3.0: Size of power converter constraint...")
-    m.addConstrs(
-        (P_chg_BESS[k] + P_dch_BESS[k] <= P_total_PC for k in range(Nh_BESS)),
+    m.addConstr(
+        P_chg_BESS + P_dch_BESS <= P_total_PC,
         name="BESS_3_0_PC_size",
     )
 
@@ -250,11 +264,11 @@ def solve_energy_hub_optimization():
     # Note: P_grid_EGC is the net power exchanged with the grid
     P_grid_EGC = P_chg_BESS - P_dch_BESS - P_PV + Pfix_EGC - Pexist_PV
     m.addConstrs(
-        (C_en_EGC[k] >= cen_buy_EGC[k] * P_grid_EGC[k] for k in range(Nh_BESS)),
+        C_en_EGC >= cen_buy_EGC * P_grid_EGC,
         name="EGC_1_1_buy_cost",
     )
     m.addConstrs(
-        (C_en_EGC[k] >= cen_sell_EGC[k] * P_grid_EGC[k] for k in range(Nh_BESS)),
+        C_en_EGC >= cen_sell_EGC * P_grid_EGC,
         name="EGC_1_2_sell_cost",
     )
 
@@ -295,7 +309,11 @@ def solve_energy_hub_optimization():
     )
     m.addConstr(C_inv_total <= C_inv_max, "FIN_2_0_Max_Budget")
 
+    # Write model
+    m.write("my_model.lp")
+
     # --- Solve ---
+    print("-------- Optimizing -------- ")
     m.Params.Method = 1  # Use dual simplex
     m.optimize()
 
